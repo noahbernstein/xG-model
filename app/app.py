@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, callback, dcc, html
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 
 from src.features.build_features import FEATURE_COLUMNS
@@ -76,20 +77,29 @@ PITCH_GREEN = "#2d572c"
 LINE_WHITE = "rgba(255,255,255,0.6)"
 
 
-def build_xg_timeline(match_df: pd.DataFrame) -> go.Figure:
+def build_xg_timeline(match_df: pd.DataFrame, up_to_minute: float | None = None) -> go.Figure:
+    """Build cumulative xG timeline. If up_to_minute is set, only show events up to that minute."""
     teams = match_df["team"].unique()
     colors = ["#3498db", "#e74c3c"]
+
+    if up_to_minute is not None:
+        visible_df = match_df[match_df["minute"] <= up_to_minute]
+    else:
+        visible_df = match_df
+
+    max_minute = max(95, match_df["minute"].max() + 2)
 
     fig = go.Figure()
 
     for i, team in enumerate(teams):
-        team_shots = match_df[match_df["team"] == team].sort_values("minute").copy()
+        team_shots = visible_df[visible_df["team"] == team].sort_values("minute").copy()
         team_shots["cum_xg"] = team_shots["xg"].cumsum()
 
         minutes = [0] + team_shots["minute"].tolist()
         xg_vals = [0] + team_shots["cum_xg"].tolist()
-        # Extend to 90+
-        minutes.append(max(95, match_df["minute"].max() + 2))
+        # Extend line to current playback position or end
+        end_min = up_to_minute if up_to_minute is not None else max_minute
+        minutes.append(end_min)
         xg_vals.append(xg_vals[-1])
 
         fig.add_trace(go.Scatter(
@@ -107,7 +117,7 @@ def build_xg_timeline(match_df: pd.DataFrame) -> go.Figure:
                 y=goals["cum_xg"].tolist(),
                 mode="markers",
                 name=f"{team} goals",
-                marker=dict(color=colors[i], size=14, symbol="circle",
+                marker=dict(color=colors[i], size=16, symbol="square",
                             line=dict(color="white", width=2)),
                 hovertext=[f"{row['player']} {row['minute']}'" for _, row in goals.iterrows()],
                 hoverinfo="text",
@@ -116,14 +126,19 @@ def build_xg_timeline(match_df: pd.DataFrame) -> go.Figure:
     # Half time line
     fig.add_vline(x=45, line_dash="dot", line_color="rgba(255,255,255,0.3)")
 
+    # Playback position marker
+    if up_to_minute is not None:
+        fig.add_vline(x=up_to_minute, line_color="rgba(255,255,100,0.5)", line_width=2)
+
     teams_list = list(teams)
-    goals_a = match_df[match_df["team"] == teams_list[0]]["is_goal"].sum()
-    goals_b = match_df[match_df["team"] == teams_list[1]]["is_goal"].sum() if len(teams_list) > 1 else 0
+    goals_a = int(visible_df[visible_df["team"] == teams_list[0]]["is_goal"].sum())
+    goals_b = int(visible_df[visible_df["team"] == teams_list[1]]["is_goal"].sum()) if len(teams_list) > 1 else 0
 
     fig.update_layout(
         title=f"{teams_list[0]} {goals_a} - {goals_b} {teams_list[1] if len(teams_list) > 1 else ''}",
         xaxis_title="Minute",
         yaxis_title="Cumulative xG",
+        xaxis=dict(range=[0, max_minute]),
         template="plotly_dark",
         paper_bgcolor="#1a1a2e",
         plot_bgcolor="#16213e",
@@ -134,8 +149,11 @@ def build_xg_timeline(match_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def build_shot_map(match_df: pd.DataFrame) -> go.Figure:
-    """Shot map on a half-pitch using Plotly."""
+def build_shot_map(match_df: pd.DataFrame, up_to_minute: float | None = None) -> go.Figure:
+    """Shot map on a half-pitch using Plotly. Squares = goals, circles = misses."""
+    if up_to_minute is not None:
+        match_df = match_df[match_df["minute"] <= up_to_minute]
+
     fig = go.Figure()
 
     # Draw pitch outline (StatsBomb coordinates: 120x80, attacking half x=60-120)
@@ -166,7 +184,7 @@ def build_shot_map(match_df: pd.DataFrame) -> go.Figure:
         goals = team_shots[team_shots["is_goal"] == 1]
         misses = team_shots[team_shots["is_goal"] == 0]
 
-        # Misses
+        # Misses — circles
         if len(misses) > 0:
             fig.add_trace(go.Scatter(
                 x=misses["y"], y=misses["x"],
@@ -181,16 +199,16 @@ def build_shot_map(match_df: pd.DataFrame) -> go.Figure:
                 hoverinfo="text",
             ))
 
-        # Goals
+        # Goals — squares
         if len(goals) > 0:
             fig.add_trace(go.Scatter(
                 x=goals["y"], y=goals["x"],
                 mode="markers",
                 name=f"{team} (goal)",
                 marker=dict(
-                    color=colors[i], size=goals["xg"] * 60 + 10,
-                    opacity=0.9, symbol="star",
-                    line=dict(color="white", width=1.5),
+                    color=colors[i], size=goals["xg"] * 60 + 12,
+                    opacity=0.9, symbol="square",
+                    line=dict(color="white", width=2),
                 ),
                 hovertext=[f"GOAL! {row['player']}<br>{row['minute']}' xG:{row['xg']:.2f}" for _, row in goals.iterrows()],
                 hoverinfo="text",
@@ -272,7 +290,23 @@ app.layout = dbc.Container([
 
     dbc.Row([
         dbc.Col([
+            dbc.Row([
+                dbc.Col([
+                    dbc.Button("Play", id="play-btn", color="success", size="sm", className="me-2"),
+                    dbc.Button("Reset", id="reset-btn", color="secondary", size="sm"),
+                ], width="auto", className="d-flex align-items-center"),
+                dbc.Col([
+                    dcc.Slider(
+                        id="minute-slider",
+                        min=0, max=95, step=1, value=95,
+                        marks={0: "0'", 15: "15'", 30: "30'", 45: "HT", 60: "60'", 75: "75'", 90: "90'"},
+                        tooltip={"placement": "bottom", "always_visible": False},
+                    ),
+                ]),
+            ], className="mb-2 align-items-center"),
             dcc.Graph(id="xg-timeline"),
+            dcc.Interval(id="play-interval", interval=400, n_intervals=0, disabled=True),
+            dcc.Store(id="is-playing", data=False),
         ], md=12),
     ]),
 
@@ -295,7 +329,7 @@ app.layout = dbc.Container([
                 html.A("StatsBomb open data", href="https://github.com/statsbomb/open-data",
                        target="_blank"),
                 ". Model: XGBoost with 36 engineered features. ",
-                "Bubble size = xG. Stars = goals.",
+                "Bubble size = xG. Squares = goals.",
             ], className="text-muted text-center small"),
         ])
     ]),
@@ -323,22 +357,87 @@ def update_matches(comp, season):
     return options, options[0]["value"] if options else None
 
 
+# Reset slider when match changes
+@callback(Output("minute-slider", "value", allow_duplicate=True),
+          Input("match-dropdown", "value"), prevent_initial_call=True)
+def reset_slider_on_match_change(_):
+    return 95
+
+
+# Play/pause toggle
+@callback(
+    Output("is-playing", "data"),
+    Output("play-interval", "disabled"),
+    Output("play-btn", "children"),
+    Output("minute-slider", "value", allow_duplicate=True),
+    Input("play-btn", "n_clicks"),
+    Input("reset-btn", "n_clicks"),
+    Input("is-playing", "data"),
+    Input("minute-slider", "value"),
+    prevent_initial_call=True,
+)
+def toggle_play(play_clicks, reset_clicks, is_playing, current_minute):
+    from dash import ctx
+    trigger = ctx.triggered_id
+
+    if trigger == "reset-btn":
+        return False, True, "Play", 0
+
+    if trigger == "play-btn":
+        if is_playing:
+            return False, True, "Play", current_minute
+        else:
+            start = 0 if current_minute >= 95 else current_minute
+            return True, False, "Pause", start
+
+    return is_playing, not is_playing, "Pause" if is_playing else "Play", current_minute
+
+
+# Interval tick — advance the slider
+@callback(
+    Output("minute-slider", "value"),
+    Output("is-playing", "data", allow_duplicate=True),
+    Output("play-interval", "disabled", allow_duplicate=True),
+    Output("play-btn", "children", allow_duplicate=True),
+    Input("play-interval", "n_intervals"),
+    Input("minute-slider", "value"),
+    Input("is-playing", "data"),
+    prevent_initial_call=True,
+)
+def advance_minute(n_intervals, current_minute, is_playing):
+    from dash import ctx
+    if not is_playing or ctx.triggered_id != "play-interval":
+        raise PreventUpdate
+
+    new_minute = current_minute + 1
+    if new_minute > 95:
+        return 95, False, True, "Play"
+    return new_minute, True, False, "Pause"
+
+
+# Main update — renders timeline, shot map, and stats based on slider position
 @callback(
     Output("xg-timeline", "figure"),
     Output("shot-map", "figure"),
     Output("stats-table", "children"),
     Input("match-dropdown", "value"),
+    Input("minute-slider", "value"),
 )
-def update_match(match_id):
+def update_match(match_id, minute):
     if match_id is None:
         empty = go.Figure()
         return empty, empty, ""
 
     match_df = df[df["match_id"] == match_id].copy()
 
-    timeline = build_xg_timeline(match_df)
-    shot_map = build_shot_map(match_df)
-    stats = build_stats_table(match_df)
+    # If slider is at max, show full match (no filter)
+    up_to = None if minute >= 95 else minute
+
+    timeline = build_xg_timeline(match_df, up_to_minute=up_to)
+    shot_map = build_shot_map(match_df, up_to_minute=up_to)
+
+    visible = match_df if up_to is None else match_df[match_df["minute"] <= minute]
+    stats = build_stats_table(visible)
 
     table = dbc.Table.from_dataframe(stats, striped=True, bordered=True, hover=True,
                                       color="dark", size="sm", className="mt-2")
