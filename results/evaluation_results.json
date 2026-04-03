@@ -1,0 +1,34 @@
+{
+  "distance_only": {
+    "metrics": {
+      "log_loss": 0.3166093311607848,
+      "brier_score": 0.09272806734567421,
+      "auc_roc": 0.7284436749985799,
+      "cv_log_loss": 0.3111446520022576
+    }
+  },
+  "logistic_regression": {
+    "metrics": {
+      "log_loss": 0.25685140348589364,
+      "brier_score": 0.07267498994284141,
+      "auc_roc": 0.838548414582042,
+      "cv_log_loss": 0.2679674278237876
+    }
+  },
+  "random_forest": {
+    "metrics": {
+      "log_loss": 0.25257658253144594,
+      "brier_score": 0.07064513275402716,
+      "auc_roc": 0.8402065649318735,
+      "cv_log_loss": 0.26427800382860217
+    }
+  },
+  "xgboost": {
+    "metrics": {
+      "log_loss": 0.2482087912732883,
+      "brier_score": 0.06932181119918823,
+      "auc_roc": 0.8442032654250707,
+      "cv_log_loss": 0.2627524917369791
+    }
+  }
+}

@@ -30,5 +30,8 @@ data/processed/
 .DS_Store
 Thumbs.db
 
+# Models (binary files)
+models/*.pkl
+
 # Environment
 .env
