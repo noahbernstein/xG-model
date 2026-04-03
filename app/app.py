@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, callback, dcc, html
+from dash import Dash, Input, Output, State, callback, dcc, html
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 
@@ -306,7 +306,6 @@ app.layout = dbc.Container([
             ], className="mb-2 align-items-center"),
             dcc.Graph(id="xg-timeline"),
             dcc.Interval(id="play-interval", interval=400, n_intervals=0, disabled=True),
-            dcc.Store(id="is-playing", data=False),
         ], md=12),
     ]),
 
@@ -357,65 +356,52 @@ def update_matches(comp, season):
     return options, options[0]["value"] if options else None
 
 
-# Reset slider when match changes
-@callback(Output("minute-slider", "value", allow_duplicate=True),
-          Input("match-dropdown", "value"), prevent_initial_call=True)
-def reset_slider_on_match_change(_):
-    return 95
-
-
-# Play/pause toggle
+# Play/Reset buttons control the interval timer and slider
 @callback(
-    Output("is-playing", "data"),
     Output("play-interval", "disabled"),
     Output("play-btn", "children"),
-    Output("minute-slider", "value", allow_duplicate=True),
+    Output("minute-slider", "value"),
     Input("play-btn", "n_clicks"),
     Input("reset-btn", "n_clicks"),
-    Input("is-playing", "data"),
-    Input("minute-slider", "value"),
+    Input("match-dropdown", "value"),
+    Input("play-interval", "n_intervals"),
+    State("minute-slider", "value"),
+    State("play-btn", "children"),
     prevent_initial_call=True,
 )
-def toggle_play(play_clicks, reset_clicks, is_playing, current_minute):
+def playback_control(play_clicks, reset_clicks, match_id, n_intervals, current_minute, btn_label):
     from dash import ctx
     trigger = ctx.triggered_id
 
+    # Match changed — reset to full view
+    if trigger == "match-dropdown":
+        return True, "Play", 95
+
+    # Reset button
     if trigger == "reset-btn":
-        return False, True, "Play", 0
+        return True, "Play", 0
 
+    # Play/Pause button
     if trigger == "play-btn":
-        if is_playing:
-            return False, True, "Play", current_minute
+        if btn_label == "Pause":
+            # Currently playing → pause
+            return True, "Play", current_minute
         else:
+            # Currently paused → play (restart from 0 if at end)
             start = 0 if current_minute >= 95 else current_minute
-            return True, False, "Pause", start
+            return False, "Pause", start
 
-    return is_playing, not is_playing, "Pause" if is_playing else "Play", current_minute
+    # Interval tick — advance the minute
+    if trigger == "play-interval":
+        new_minute = current_minute + 1
+        if new_minute > 95:
+            return True, "Play", 95
+        return False, "Pause", new_minute
 
-
-# Interval tick — advance the slider
-@callback(
-    Output("minute-slider", "value"),
-    Output("is-playing", "data", allow_duplicate=True),
-    Output("play-interval", "disabled", allow_duplicate=True),
-    Output("play-btn", "children", allow_duplicate=True),
-    Input("play-interval", "n_intervals"),
-    Input("minute-slider", "value"),
-    Input("is-playing", "data"),
-    prevent_initial_call=True,
-)
-def advance_minute(n_intervals, current_minute, is_playing):
-    from dash import ctx
-    if not is_playing or ctx.triggered_id != "play-interval":
-        raise PreventUpdate
-
-    new_minute = current_minute + 1
-    if new_minute > 95:
-        return 95, False, True, "Play"
-    return new_minute, True, False, "Pause"
+    raise PreventUpdate
 
 
-# Main update — renders timeline, shot map, and stats based on slider position
+# Render timeline, shot map, and stats based on match + minute
 @callback(
     Output("xg-timeline", "figure"),
     Output("shot-map", "figure"),
@@ -424,24 +410,18 @@ def advance_minute(n_intervals, current_minute, is_playing):
     Input("minute-slider", "value"),
 )
 def update_match(match_id, minute):
-    if match_id is None:
-        empty = go.Figure()
-        return empty, empty, ""
+    if not match_id:
+        raise PreventUpdate
 
-    match_df = df[df["match_id"] == match_id].copy()
-
-    # If slider is at max, show full match (no filter)
-    up_to = None if minute >= 95 else minute
+    match_df = df[df["match_id"] == match_id]
+    up_to = minute if minute < 95 else None
 
     timeline = build_xg_timeline(match_df, up_to_minute=up_to)
     shot_map = build_shot_map(match_df, up_to_minute=up_to)
-
-    visible = match_df if up_to is None else match_df[match_df["minute"] <= minute]
-    stats = build_stats_table(visible)
+    stats = build_stats_table(match_df)
 
     table = dbc.Table.from_dataframe(stats, striped=True, bordered=True, hover=True,
-                                      color="dark", size="sm", className="mt-2")
-
+                                     color="dark", size="sm")
     return timeline, shot_map, table
 
 
