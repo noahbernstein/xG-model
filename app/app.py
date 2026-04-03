@@ -7,8 +7,12 @@ Select a competition, season, and match to see:
 - Match stats summary
 """
 
+import sys
 import pickle
 from pathlib import Path
+
+# Ensure project root is on the path when running from app/
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import pandas as pd
@@ -22,8 +26,9 @@ from src.features.build_features import FEATURE_COLUMNS
 # Data loading
 # ---------------------------------------------------------------------------
 
-DATA_PATH = Path("data/processed/features.parquet")
-MODEL_PATH = Path("models/xgboost.pkl")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_PATH = PROJECT_ROOT / "data/processed/features.parquet"
+MODEL_PATH = PROJECT_ROOT / "models/xgboost.pkl"
 
 
 def load_data() -> pd.DataFrame:
