@@ -56,6 +56,8 @@ notebooks/
   04_analysis.ipynb            League analysis, men's/women's, player xG
 tests/
   test_features.py             19 unit tests for feature calculations
+app/
+  app.py                       Interactive Dash app — xG match explorer
 ```
 
 ## Quick start
@@ -76,6 +78,9 @@ make all
 
 # Run tests
 make test
+
+# Launch interactive Dash app
+make app         # Opens at http://localhost:8050
 ```
 
 ### Docker
@@ -112,4 +117,4 @@ docker run xg-model
 
 ## Tech stack
 
-Python, Pandas, Scikit-learn, XGBoost, SHAP, mplsoccer, Matplotlib, Seaborn, statsbombpy, pytest, Docker
+Python, Pandas, Scikit-learn, XGBoost, SHAP, Dash, Plotly, mplsoccer, Matplotlib, Seaborn, statsbombpy, pytest, Docker

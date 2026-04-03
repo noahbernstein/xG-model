@@ -1,4 +1,4 @@
-.PHONY: setup data features train evaluate all clean docker-build
+.PHONY: setup data features train evaluate all clean docker-build app
 
 setup:
 	python -m venv venv && . venv/bin/activate && pip install -r requirements.txt
@@ -22,6 +22,9 @@ clean:
 
 docker-build:
 	docker build -t xg-model .
+
+app:
+	python app/app.py
 
 test:
 	pytest tests/ -v
