@@ -341,7 +341,7 @@ def update_match(match_id):
     stats = build_stats_table(match_df)
 
     table = dbc.Table.from_dataframe(stats, striped=True, bordered=True, hover=True,
-                                      dark=True, size="sm", className="mt-2")
+                                      color="dark", size="sm", className="mt-2")
 
     return timeline, shot_map, table
 
